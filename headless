@@ -1,0 +1,105 @@
+-- // Auto Headless Toggle by Ticklure (dayja1q0) \\ --
+
+local StarterGui = game:GetService("StarterGui")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local player = Players.LocalPlayer
+
+----------------------------------------------------------------
+-- NOTIFICATION
+----------------------------------------------------------------
+StarterGui:SetCore("SendNotification", {
+	Title = "Headless Loaded!",
+	Text = "With ON/OFF Toggle",
+	Duration = 5
+})
+
+----------------------------------------------------------------
+-- MAKE GUI + TOGGLE BUTTON (SURVIVES RESET + DRAGGABLE)
+----------------------------------------------------------------
+local screenGui = Instance.new("ScreenGui")
+screenGui.ResetOnSpawn = false
+screenGui.Name = "HeadlessToggleGUI"
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 100, 0, 100)
+frame.Position = UDim2.new(0.05, 0, 0.4, 0)
+frame.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+frame.Active = true
+frame.Draggable = true
+frame.Parent = screenGui
+
+local toggleButton = Instance.new("TextButton")
+toggleButton.Size = UDim2.new(1, -20, 1, -20)
+toggleButton.Position = UDim2.new(0, 10, 0, 10)
+toggleButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0) -- red (off)
+toggleButton.Text = "OFF"
+toggleButton.TextScaled = true
+toggleButton.Parent = frame
+
+local headlessEnabled = false
+
+local function applyHeadless(char)
+	task.delay(1, function()
+		if not headlessEnabled then return end
+		if not char then return end
+
+		local head = char:FindFirstChild("Head")
+		local torso = char:FindFirstChild("Torso")
+		local neck = torso and torso:FindFirstChild("Neck")
+
+		if head and neck then
+			head.Transparency = 1
+			head.CanCollide = false
+			head.Massless = true
+
+			neck.C0 = CFrame.new(0, 250, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0)
+
+			if ReplicatedStorage:FindFirstChild("RemoteEvent") then
+				ReplicatedStorage.RemoteEvent:FireServer("neck",
+					(CFrame.new(0, -100, 0) * CFrame.Angles(-1.6130179166793823, 0, 3))
+				)
+			end
+		end
+	end)
+end
+
+-- auto apply wrapper
+local function applyAll(char)
+	if headlessEnabled then
+		applyHeadless(char)
+	end
+end
+
+task.spawn(function()
+	while true do
+		task.wait(1)
+
+		if headlessEnabled and player.Character then
+			applyHeadless(player.Character)
+		end
+	end
+end)
+
+toggleButton.MouseButton1Click:Connect(function()
+	headlessEnabled = not headlessEnabled
+
+	if headlessEnabled then
+		toggleButton.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+		toggleButton.Text = "ON"
+
+		if player.Character then
+			applyAll(player.Character)
+		end
+	else
+		toggleButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+		toggleButton.Text = "OFF"
+	end
+end)
+
+player.CharacterAdded:Connect(function(char)
+	if headlessEnabled then
+		applyAll(char)
+	end
+end)
