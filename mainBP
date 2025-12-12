@@ -1823,29 +1823,27 @@ end
         end
 
         ----------------------------------------------------
-        -- PERFECTLY STABLE CROSSHAIR + AIMLOCK (NO PREDICTION)
+        -- CROSSHAIR & AIMLOCK SETUP
         ----------------------------------------------------
-        local Camera = Workspace.CurrentCamera
-
-        local screenGui
-        local crosshairImg
+        local crosshairPart, trackConn, bestTargetForAimlock
+        local crosshairPos
+        local screenGui, crosshairImg
+        local verticalAimOffset = Vector3.new(0, 1, 0)
+        local orbitRadius, orbitSpeed, verticalBob, verticalAmp, backOffsetDist = 1.25, 2.75, 0.35, 0.15, 7
 
         local function ensureCrosshairVisual()
             if not crosshairPart or not crosshairPart.Parent then
                 local p = Instance.new("Part")
                 p.Anchored = true
                 p.CanCollide = false
-                p.Size = Vector3.new(0.1, 0.1, 0.1)
+                p.Size = Vector3.new(0.1,0.1,0.1)
                 p.Transparency = 1
                 p.Parent = Workspace
                 crosshairPart = p
             end
 
             if screenGui then return end
-
             local pg = lp:WaitForChild("PlayerGui")
-            task.wait(0)
-
             screenGui = Instance.new("ScreenGui")
             screenGui.IgnoreGuiInset = true
             screenGui.ResetOnSpawn = false
@@ -1853,88 +1851,57 @@ end
             screenGui.Parent = pg
 
             crosshairImg = Instance.new("ImageLabel")
-            crosshairImg.AnchorPoint = Vector2.new(0.5, 0.5)
+            crosshairImg.AnchorPoint = Vector2.new(0.5,0.5)
             crosshairImg.BackgroundTransparency = 1
             crosshairImg.Visible = true
-
             crosshairImg.Image = "rbxassetid://7072718365"
-            crosshairImg.Size = UDim2.new(0, 60, 0, 60)
+            crosshairImg.Size = UDim2.new(0,60,0,60)
             crosshairImg.Parent = screenGui
         end
 
         local function stopCrosshairTracking()
             if trackConn then trackConn:Disconnect() end
             trackConn = nil
-
             if crosshairPart then crosshairPart:Destroy() end
             crosshairPart = nil
-
             if screenGui then screenGui:Destroy() end
             screenGui = nil
             crosshairImg = nil
-
             crosshairPos = nil
             bestTargetForAimlock = nil
         end
 
-        ----------------------------------------------------
-        -- VISUAL ORBIT/BACK OFFSET
-        ----------------------------------------------------
-        local orbitRadius = 1.25
-        local orbitSpeed  = 2.75
-        local verticalBob = 0.35
-        local verticalAmp = 0.15
-        local backOffsetDist = 7
-        local verticalAimOffset = Vector3.new(0,1,0)
-
-        ----------------------------------------------------
-        -- START LOCK (NO PREDICTION)
-        ----------------------------------------------------
         local function startLock()
             ensureCrosshairVisual()
             if trackConn then trackConn:Disconnect() end
 
             trackConn = RunService.RenderStepped:Connect(function()
                 local t = bestTargetForAimlock
-                if not t or not t.Parent then
-                    stopCrosshairTracking()
-                    return
-                end
-
+                if not t or not t.Parent then stopCrosshairTracking(); return end
                 local hum = t.Parent:FindFirstChild("Humanoid")
-                if hum and hum.Health <= 0 then
-                    stopCrosshairTracking()
-                    ensureCrosshairVisual()
-                    return
-                end
-
+                if hum and hum.Health <= 0 then stopCrosshairTracking(); ensureCrosshairVisual(); return end
                 local root = t.Parent:FindFirstChild("HumanoidRootPart") or t.Parent:FindFirstChild("Torso")
                 if not root then return end
 
                 local tnow = os.clock()
-                local orbitX = math.cos(tnow*orbitSpeed)*orbitRadius
-                local orbitZ = math.sin(tnow*orbitSpeed)*orbitRadius
-                local orbitY = math.sin(tnow*verticalBob)*verticalAmp
-                local orbitOffset = Vector3.new(orbitX, orbitY, orbitZ)
-
+                local orbitOffset = Vector3.new(math.cos(tnow*orbitSpeed)*orbitRadius, math.sin(tnow*verticalBob)*verticalAmp, math.sin(tnow*orbitSpeed)*orbitRadius)
                 local finalVisualPos = root.Position + verticalAimOffset + orbitOffset
                 crosshairPos = finalVisualPos
 
                 if crosshairImg then
-                    local screenPos, onScreen = Camera:WorldToViewportPoint(finalVisualPos)
+                    local screenPos, onScreen = Workspace.CurrentCamera:WorldToViewportPoint(finalVisualPos)
                     crosshairImg.Visible = onScreen
                     if onScreen then crosshairImg.Position = UDim2.new(0,screenPos.X,0,screenPos.Y) end
                 end
-
                 if crosshairPart then
-                    local camDir = (Camera.CFrame.Position - finalVisualPos).Unit
+                    local camDir = (Workspace.CurrentCamera.CFrame.Position - finalVisualPos).Unit
                     crosshairPart.Position = finalVisualPos - camDir*backOffsetDist
                 end
             end)
         end
 
         ----------------------------------------------------
-        -- VISUAL GHOST KNIFE SYSTEM
+        -- GHOST KNIFE
         ----------------------------------------------------
         local VISUAL_KNIFE_SPEED = 270
         local verticalOffset = Vector3.new(0,1,0)
@@ -1944,7 +1911,6 @@ end
             if not lp.Character then return nil end
             local blade = lp.Character:FindFirstChild("Blade")
             if not blade then return nil end
-
             local clone = blade:Clone()
             clone.Anchored = true
             clone.CanCollide = false
@@ -1957,131 +1923,120 @@ end
             if not knife then return end
             startPos += verticalOffset
             targetPos += verticalOffset
-            local dir = (targetPos-startPos).Unit
-            local distance = (targetPos-startPos).Magnitude
+            local dir = (targetPos - startPos).Unit
+            local distance = (targetPos - startPos).Magnitude
             knife.CFrame = CFrame.new(startPos,targetPos)
-            table.insert(activeVisualKnives,{
-                Part=knife, StartPos=startPos, TargetPos=targetPos,
-                Dir=dir, Distance=distance, Travelled=0, TimeAlive=0
-            })
+            table.insert(activeVisualKnives,{Part=knife, StartPos=startPos, TargetPos=targetPos, Dir=dir, Distance=distance, Travelled=0, TimeAlive=0})
         end
 
         RunService.RenderStepped:Connect(function(dt)
             for i=#activeVisualKnives,1,-1 do
-                local k=activeVisualKnives[i]
-                if not k.Part or not k.Part.Parent then
-                    table.remove(activeVisualKnives,i)
+                local k = activeVisualKnives[i]
+                if not k.Part or not k.Part.Parent then table.remove(activeVisualKnives,i)
                 else
                     local moveDelta = k.Dir*VISUAL_KNIFE_SPEED*dt
                     k.Travelled += moveDelta.Magnitude
-
                     if k.Travelled >= k.Distance then
-                        k.Part.CFrame = CFrame.new(k.TargetPos,k.TargetPos+k.Dir)
+                        k.Part.CFrame = CFrame.new(k.TargetPos, k.TargetPos+k.Dir)
                         k.Part:Destroy()
                         table.remove(activeVisualKnives,i)
                     else
-                        k.Part.CFrame = CFrame.new(
-                            k.StartPos+k.Dir*k.Travelled,
-                            k.StartPos+k.Dir*k.Travelled+k.Dir
-                        )
+                        k.Part.CFrame = CFrame.new(k.StartPos+k.Dir*k.Travelled, k.StartPos+k.Dir*k.Travelled+k.Dir)
                     end
                     k.TimeAlive += dt
                 end
             end
         end)
 
-        ----------------------------------------------------
-        -- FIRE KNIFE
-        ----------------------------------------------------
         local function fireKnife(bind)
-            if not bind or not crosshairPart then return end
-            if not crosshairPos then return end
-            local finalVisualPos = crosshairPos
-            pcall(function() bind:Fire("t",CFrame.new(finalVisualPos)) end)
+            if not bind or not crosshairPart or not crosshairPos then return end
+            pcall(function() bind:Fire("t", CFrame.new(crosshairPos)) end)
             if lp.Character and lp.Character:FindFirstChild("Blade") then
-                spawnGhostKnife(lp.Character.Blade.Position,finalVisualPos)
+                spawnGhostKnife(lp.Character.Blade.Position, crosshairPos)
             end
         end
 
         ----------------------------------------------------
-        -- MONITOR DEATH
+        -- MONITOR PLAYER DEATH & RESPAWN
         ----------------------------------------------------
         task.spawn(function()
             while true do
                 task.wait()
-                if not lp.Character then
-                    stopCrosshairTracking()
-                    continue
-                end
+                if not lp.Character then stopCrosshairTracking(); continue end
                 local hum = lp.Character:FindFirstChild("Humanoid")
                 if hum and hum.Health <= 0 then stopCrosshairTracking() end
             end
         end)
 
-        ----------------------------------------------------
-        -- RESPAWN HANDLING
-        ----------------------------------------------------
         lp.CharacterAdded:Connect(function(newChar)
-            if hitbox2Active then
-                task.wait(0)
-                stopCrosshairTracking()
-            end
+            if hitbox2Active then task.wait(0); stopCrosshairTracking() end
         end)
 
         ----------------------------------------------------
-        -- MAIN AUTO-THROW LOOP (FPS-INDEPENDENT)
+        -- ⭐ FPS-INDEPENDENT AUTO-THROW LOOP ⭐
         ----------------------------------------------------
         task.spawn(function()
             GetMsgBoxFunc()
             if MsgBox then MsgBox("Legit Auto-throw loaded! Very very good aiming") end
 
-            local accumulator = 0
-            local BASE_RATE = 0.05 -- 20hz
+            local accumulator_AutoThrow = 0
+            local BASE_RATE_AutoThrow = 0.05 -- 20hz
 
             RunService.Heartbeat:Connect(function(dt)
-                dt = math.clamp(dt,0.001,0.033)
-                accumulator += dt
+                if not hitbox2Active then return end
 
-                while accumulator >= BASE_RATE do
-                    accumulator -= BASE_RATE
-                    if not hitbox2Active then return end
-                    if not lp.Character or not lp.Character:FindFirstChild("Humanoid") then return end
-                    if lp.Character.Humanoid.Health <= 0 then return end
-                    if not hasToolEquipped() then return end
+                dt = math.clamp(dt, 0.001, 0.033)
+                accumulator_AutoThrow += dt
 
+                while accumulator_AutoThrow >= BASE_RATE_AutoThrow do
+                    accumulator_AutoThrow -= BASE_RATE_AutoThrow
+
+                    -- START AIMLOCK
+                    startLock()
+
+                    -- VALIDATION
+                    if not lp.Character then continue end
+                    local hum = lp.Character:FindFirstChild("Humanoid")
+                    if not hum or hum.Health <= 0 then continue end
+                    if not hasToolEquipped() then continue end
                     bind = lp.PlayerScripts:FindFirstChild("Event") or bind
-                    if not bind then return end
+                    if not bind then continue end
 
-                    -- find closest target
-                    local camera = Workspace.CurrentCamera
-                    local bestTarget,bestDist = nil, math.huge
-
+                    -- TARGET SELECTION
+                    local cam = Workspace.CurrentCamera
+                    local bestTarget, bestDist = nil, math.huge
                     for _,plr in ipairs(Players:GetPlayers()) do
                         if plr ~= lp and plr.Character then
-                            local hum = plr.Character:FindFirstChild("Humanoid")
+                            local hum2 = plr.Character:FindFirstChild("Humanoid")
                             local head = plr.Character:FindFirstChild("Head")
                             local backpack = plr:FindFirstChildOfClass("Backpack")
                             local hasBlade = plr.Character:FindFirstChild("Blade") or (backpack and backpack:FindFirstChild("Blade"))
-
-                            if hum and hum.Health>0 and head and hasBlade then
-                                local dist = (head.Position - camera.CFrame.Position).Magnitude
-                                if dist<bestDist then bestTarget,bestDist = head,dist end
+                            if hum2 and hum2.Health > 0 and head and hasBlade then
+                                local dist = (head.Position - cam.CFrame.Position).Magnitude
+                                if dist < bestDist then
+                                    bestDist = dist
+                                    bestTarget = head
+                                end
                             end
                         end
                     end
 
-                    if bestTarget and tick()-lastThrowTime>=1 and not equipCooldown then
+                    -- THROW CONDITIONS
+                    if bestTarget and tick() - lastThrowTime >= 1 and not equipCooldown then
                         lastThrowTime = tick()
                         bestTargetForAimlock = bestTarget
 
-                        -- animation + knife fire handled asynchronously
                         task.spawn(function()
+                            if not hitbox2Active then return end
                             playThrowAnimation()
+
+                            -- FPS-INDEPENDENT DELAY BEFORE FIRING
+                            local delayNeeded = 0.20
                             local elapsed = 0
-                            local delayNeeded = 0.2
-                            while elapsed < delayNeeded do
+                            while elapsed < delayNeeded and hitbox2Active do
                                 elapsed += RunService.Heartbeat:Wait()
                             end
+
                             fireKnife(bind)
                         end)
                     end
@@ -2210,229 +2165,305 @@ end
             lp.Character.ChildAdded:Connect(onToolEquipped)
         end
 
-        ----------------------------------------------------
-        -- PERFECTLY STABLE CROSSHAIR + AIMLOCK (NO PREDICTION)
-        ----------------------------------------------------
-        local Camera = Workspace.CurrentCamera
-        local screenGui, crosshairImg
+----------------------------------------------------
+-- PERFECTLY STABLE CROSSHAIR + AIMLOCK (NO PREDICTION)
+----------------------------------------------------
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local lp = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
 
-        local function ensureCrosshairVisual()
-            if not crosshairPart or not crosshairPart.Parent then
-                local p = Instance.new("Part")
-                p.Anchored = true
-                p.CanCollide = false
-                p.Size = Vector3.new(0.1, 0.1, 0.1)
-                p.Transparency = 1
-                p.Parent = Workspace
-                crosshairPart = p
-            end
+local crosshairPart
+local crosshairPos
+local bestTargetForAimlock
+local trackConn
 
-            if screenGui then return end
-            local pg = lp:WaitForChild("PlayerGui")
-            task.wait(0)
-            screenGui = Instance.new("ScreenGui")
-            screenGui.IgnoreGuiInset = true
-            screenGui.ResetOnSpawn = false
-            screenGui.DisplayOrder = 999999
-            screenGui.Parent = pg
+----------------------------------------------------
+-- SCREEN CROSSHAIR (VISIBLE ALWAYS)
+----------------------------------------------------
+local screenGui
+local crosshairImg
 
-            crosshairImg = Instance.new("ImageLabel")
-            crosshairImg.AnchorPoint = Vector2.new(0.5, 0.5)
-            crosshairImg.BackgroundTransparency = 1
-            crosshairImg.Visible = true
-            crosshairImg.Image = "rbxassetid://7072718365"
-            crosshairImg.Size = UDim2.new(0, 60, 0, 60)
-            crosshairImg.Parent = screenGui
+local function ensureCrosshairVisual()
+    if not crosshairPart or not crosshairPart.Parent then
+        local p = Instance.new("Part")
+        p.Anchored = true
+        p.CanCollide = false
+        p.Size = Vector3.new(0.1, 0.1, 0.1)
+        p.Transparency = 1
+        p.Parent = Workspace
+        crosshairPart = p
+    end
+
+    if screenGui then return end
+
+    local pg = lp:WaitForChild("PlayerGui")
+    task.wait(0)
+
+    screenGui = Instance.new("ScreenGui")
+    screenGui.IgnoreGuiInset = true
+    screenGui.ResetOnSpawn = false
+    screenGui.DisplayOrder = 999999
+    screenGui.Parent = pg
+
+    crosshairImg = Instance.new("ImageLabel")
+    crosshairImg.AnchorPoint = Vector2.new(0.5, 0.5)
+    crosshairImg.BackgroundTransparency = 1
+    crosshairImg.Visible = true
+
+    crosshairImg.Image = "rbxassetid://7072718365"
+    crosshairImg.Size = UDim2.new(0, 60, 0, 60)
+    crosshairImg.Parent = screenGui
+end
+
+local function stopCrosshairTracking()
+    if trackConn then trackConn:Disconnect() end
+    trackConn = nil
+
+    if crosshairPart then crosshairPart:Destroy() end
+    crosshairPart = nil
+
+    if screenGui then screenGui:Destroy() end
+    screenGui = nil
+    crosshairImg = nil
+
+    crosshairPos = nil
+    bestTargetForAimlock = nil
+end
+
+----------------------------------------------------
+-- VISUAL ORBIT/BACK OFFSET
+----------------------------------------------------
+local orbitRadius = 1.25
+local orbitSpeed  = 2.75
+local verticalBob = 0.35
+local verticalAmp = 0.15
+local backOffsetDist = 7
+local verticalAimOffset = Vector3.new(0, 1, 0)
+
+----------------------------------------------------
+-- START LOCK (NO PREDICTION)
+----------------------------------------------------
+local function startLock()
+    ensureCrosshairVisual()
+
+    if trackConn then trackConn:Disconnect() end
+
+    trackConn = RunService.RenderStepped:Connect(function()
+        local t = bestTargetForAimlock
+        if not t or not t.Parent then
+            stopCrosshairTracking()
+            return
         end
 
-        local function stopCrosshairTracking()
-            if trackConn then trackConn:Disconnect() end
-            trackConn = nil
-
-            if crosshairPart then crosshairPart:Destroy() end
-            crosshairPart = nil
-
-            if screenGui then screenGui:Destroy() end
-            screenGui = nil
-            crosshairImg = nil
-            crosshairPos = nil
-            bestTargetForAimlock = nil
-        end
-
-        ----------------------------------------------------
-        -- VISUAL ORBIT/BACK OFFSET
-        ----------------------------------------------------
-        local orbitRadius = 1.25
-        local orbitSpeed  = 2.75
-        local verticalBob = 0.35
-        local verticalAmp = 0.15
-        local backOffsetDist = 7
-        local verticalAimOffset = Vector3.new(0,1,0)
-
-        ----------------------------------------------------
-        -- START LOCK
-        ----------------------------------------------------
-        local function startLock()
+        local hum = t.Parent:FindFirstChild("Humanoid")
+        if hum and hum.Health <= 0 then
+            stopCrosshairTracking()
             ensureCrosshairVisual()
-            if trackConn then trackConn:Disconnect() end
-
-            trackConn = RunService.RenderStepped:Connect(function()
-                local t = bestTargetForAimlock
-                if not t or not t.Parent then
-                    stopCrosshairTracking()
-                    return
-                end
-
-                local hum = t.Parent:FindFirstChild("Humanoid")
-                if hum and hum.Health <= 0 then
-                    stopCrosshairTracking()
-                    ensureCrosshairVisual()
-                    return
-                end
-
-                local root = t.Parent:FindFirstChild("HumanoidRootPart") or t.Parent:FindFirstChild("Torso")
-                if not root then return end
-
-                local tnow = os.clock()
-                local orbitX = math.cos(tnow*orbitSpeed)*orbitRadius
-                local orbitZ = math.sin(tnow*orbitSpeed)*orbitRadius
-                local orbitY = math.sin(tnow*verticalBob)*verticalAmp
-                local orbitOffset = Vector3.new(orbitX, orbitY, orbitZ)
-
-                local finalVisualPos = root.Position + verticalAimOffset + orbitOffset
-                crosshairPos = finalVisualPos
-
-                if crosshairImg then
-                    local screenPos, onScreen = Camera:WorldToViewportPoint(finalVisualPos)
-                    crosshairImg.Visible = onScreen
-                    if onScreen then crosshairImg.Position = UDim2.new(0,screenPos.X,0,screenPos.Y) end
-                end
-
-                if crosshairPart then
-                    local camDir = (Camera.CFrame.Position - finalVisualPos).Unit
-                    crosshairPart.Position = finalVisualPos - camDir*backOffsetDist
-                end
-            end)
+            return
         end
 
-        ----------------------------------------------------
-        -- VISUAL GHOST KNIFE
-        ----------------------------------------------------
-        local VISUAL_KNIFE_SPEED = 270
-        local verticalOffset = Vector3.new(0,1,0)
-        local activeVisualKnives = {}
+        local root = t.Parent:FindFirstChild("HumanoidRootPart") or t.Parent:FindFirstChild("Torso")
+        if not root then return end
 
-        local function getKnifeAppearance()
-            if not lp.Character then return nil end
-            local blade = lp.Character:FindFirstChild("Blade")
-            if not blade then return nil end
-            local clone = blade:Clone()
-            clone.Anchored = true
-            clone.CanCollide = false
-            clone.Parent = Workspace
-            return clone
+        local tnow = os.clock()
+
+        local orbitX = math.cos(tnow * orbitSpeed) * orbitRadius
+        local orbitZ = math.sin(tnow * orbitSpeed) * orbitRadius
+        local orbitY = math.sin(tnow * verticalBob) * verticalAmp
+
+        local orbitOffset = Vector3.new(orbitX, orbitY, orbitZ)
+        local finalVisualPos = root.Position + verticalAimOffset + orbitOffset
+        crosshairPos = finalVisualPos
+
+        if crosshairImg then
+            local screenPos, onScreen = Camera:WorldToViewportPoint(finalVisualPos)
+            crosshairImg.Visible = onScreen
+            if onScreen then
+                crosshairImg.Position = UDim2.new(0, screenPos.X, 0, screenPos.Y)
+            end
         end
 
-        local function spawnGhostKnife(startPos,targetPos)
-            local knife = getKnifeAppearance()
-            if not knife then return end
-            startPos += verticalOffset
-            targetPos += verticalOffset
-            local dir = (targetPos-startPos).Unit
-            local distance = (targetPos-startPos).Magnitude
-            knife.CFrame = CFrame.new(startPos,targetPos)
-            table.insert(activeVisualKnives,{
-                Part=knife, StartPos=startPos, TargetPos=targetPos,
-                Dir=dir, Distance=distance, Travelled=0, TimeAlive=0
-            })
+        if crosshairPart then
+            local camDir = (Camera.CFrame.Position - finalVisualPos).Unit
+            crosshairPart.Position = finalVisualPos - camDir * backOffsetDist
         end
+    end)
+end
 
-        RunService.RenderStepped:Connect(function(dt)
-            for i=#activeVisualKnives,1,-1 do
-                local k=activeVisualKnives[i]
-                if not k.Part or not k.Part.Parent then
-                    table.remove(activeVisualKnives,i)
-                else
-                    local moveDelta = k.Dir*VISUAL_KNIFE_SPEED*dt
-                    k.Travelled += moveDelta.Magnitude
-                    if k.Travelled >= k.Distance then
-                        k.Part.CFrame = CFrame.new(k.TargetPos,k.TargetPos+k.Dir)
-                        k.Part:Destroy()
-                        table.remove(activeVisualKnives,i)
-                    else
-                        k.Part.CFrame = CFrame.new(
-                            k.StartPos+k.Dir*k.Travelled,
-                            k.StartPos+k.Dir*k.Travelled+k.Dir
-                        )
+----------------------------------------------------
+-- VISUAL GHOST KNIFE SYSTEM
+----------------------------------------------------
+local VISUAL_KNIFE_SPEED = 270
+local verticalOffset = Vector3.new(0, 1, 0)
+local activeVisualKnives = {}
+
+local function getKnifeAppearance()
+    if not lp.Character then return nil end
+    local blade = lp.Character:FindFirstChild("Blade")
+    if not blade then return nil end
+
+    local clone = blade:Clone()
+    clone.Anchored = true
+    clone.CanCollide = false
+    clone.Parent = Workspace
+    return clone
+end
+
+local function spawnGhostKnife(startPos, targetPos)
+    local knife = getKnifeAppearance()
+    if not knife then return end
+
+    startPos = startPos + verticalOffset
+    targetPos = targetPos + verticalOffset
+
+    local dir = (targetPos - startPos).Unit
+    local distance = (targetPos - startPos).Magnitude
+
+    knife.CFrame = CFrame.new(startPos, targetPos)
+
+    table.insert(activeVisualKnives, {
+        Part = knife,
+        StartPos = startPos,
+        TargetPos = targetPos,
+        Dir = dir,
+        Distance = distance,
+        Travelled = 0,
+        TimeAlive = 0
+    })
+end
+
+RunService.RenderStepped:Connect(function(dt)
+    for i = #activeVisualKnives, 1, -1 do
+        local k = activeVisualKnives[i]
+        if not k.Part or not k.Part.Parent then
+            table.remove(activeVisualKnives, i)
+        else
+            local moveDelta = k.Dir * VISUAL_KNIFE_SPEED * dt
+            k.Travelled += moveDelta.Magnitude
+
+            if k.Travelled >= k.Distance then
+                k.Part.CFrame = CFrame.new(k.TargetPos, k.TargetPos + k.Dir)
+                k.Part:Destroy()
+                table.remove(activeVisualKnives, i)
+            else
+                k.Part.CFrame = CFrame.new(
+                    k.StartPos + k.Dir * k.Travelled,
+                    k.StartPos + k.Dir * k.Travelled + k.Dir
+                )
+            end
+
+            k.TimeAlive += dt
+        end
+    end
+end)
+
+----------------------------------------------------
+-- FIRE KNIFE
+----------------------------------------------------
+local function fireKnife(bind)
+    if not bind or not crosshairPart then return end
+    if not crosshairPos then return end
+
+    local finalVisualPos = crosshairPos
+    pcall(function()
+        bind:Fire("t", CFrame.new(finalVisualPos))
+    end)
+
+    if lp.Character and lp.Character:FindFirstChild("Blade") then
+        spawnGhostKnife(lp.Character.Blade.Position, finalVisualPos)
+    end
+end
+
+----------------------------------------------------
+-- PLAYER DEATH MONITOR
+----------------------------------------------------
+task.spawn(function()
+    while true do
+        task.wait()
+        if not lp.Character then
+            stopCrosshairTracking()
+            continue
+        end
+        local hum = lp.Character:FindFirstChild("Humanoid")
+        if hum and hum.Health <= 0 then
+            stopCrosshairTracking()
+        end
+    end
+end)
+
+----------------------------------------------------
+-- CHARACTER RESPAWN
+----------------------------------------------------
+lp.CharacterAdded:Connect(function(newChar)
+    if duoHitbox2Active then
+        task.wait(0)
+        stopCrosshairTracking()
+    end
+end)
+
+----------------------------------------------------
+-- MAIN AUTO-THROW LOOP (FPS-INDEPENDENT)
+----------------------------------------------------
+task.spawn(function()
+    GetMsgBoxFunc()
+    if MsgBox then MsgBox("Legit Auto-throw Duos edition loaded! Very very good aiming") end
+
+    local accumulator = 0
+    local interval = 1/60  -- 60hz logic tick
+
+    RunService.Heartbeat:Connect(function(dt)
+        if not duoHitbox2Active then return end
+
+        accumulator += dt
+        if accumulator < interval then return end
+        accumulator = 0
+
+        startLock()
+
+        if not lp.Character or not lp.Character:FindFirstChild("Humanoid") then return end
+        if lp.Character.Humanoid.Health <= 0 then return end
+        if not hasToolEquipped() then return end
+
+        bind = lp.PlayerScripts:FindFirstChild("Event") or bind
+        if not bind then return end
+
+        local camera = Workspace.CurrentCamera
+        local bestTarget, bestDist = nil, math.huge
+        local localTeamColor = lp.TeamColor
+
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= lp and plr.TeamColor ~= localTeamColor and plr.Character then
+                local hum = plr.Character:FindFirstChild("Humanoid")
+                local head = plr.Character:FindFirstChild("Head")
+                local backpack = plr:FindFirstChildOfClass("Backpack")
+                local hasBlade = plr.Character:FindFirstChild("Blade") or (backpack and backpack:FindFirstChild("Blade"))
+
+                if hum and hum.Health > 0 and head and hasBlade then
+                    local dist = (head.Position - camera.CFrame.Position).Magnitude
+                    if dist < bestDist then
+                        bestTarget, bestDist = head, dist
                     end
-                    k.TimeAlive += dt
                 end
-            end
-        end)
-
-        ----------------------------------------------------
-        -- FIRE KNIFE
-        ----------------------------------------------------
-        local function fireKnife(bind)
-            if not bind or not crosshairPart then return end
-            if not crosshairPos then return end
-            local finalVisualPos = crosshairPos
-            pcall(function() bind:Fire("t",CFrame.new(finalVisualPos)) end)
-            if lp.Character and lp.Character:FindFirstChild("Blade") then
-                spawnGhostKnife(lp.Character.Blade.Position,finalVisualPos)
             end
         end
 
-        ----------------------------------------------------
-        -- MONITOR DEATH
-        ----------------------------------------------------
-        task.spawn(function()
-            while true do
-                task.wait()
-                if not lp.Character then stopCrosshairTracking() continue end
-                local hum = lp.Character:FindFirstChild("Humanoid")
-                if hum and hum.Health <= 0 then stopCrosshairTracking() end
-            end
-        end)
+        if bestTarget and tick() - lastThrowTime >= 1 and not equipCooldown then
+            lastThrowTime = tick()
+            bestTargetForAimlock = bestTarget
 
-        ----------------------------------------------------
-        -- RESPAWN
-        ----------------------------------------------------
-        lp.CharacterAdded:Connect(function(newChar)
-            if duoHitbox2Active then
-                task.wait(0)
-                stopCrosshairTracking()
-            end
-        end)
+            task.spawn(function()
+                if not duoHitbox2Active then return end
+                playThrowAnimation()
+                local throwDelay = 0.2
+                local elapsed = 0
 
-        ----------------------------------------------------
-        -- MAIN AUTO-THROW LOOP (FPS-INDEPENDENT)
-        ----------------------------------------------------
-        task.spawn(function()
-            GetMsgBoxFunc()
-            if MsgBox then MsgBox("Legit Auto-throw Duos edition loaded! Very very good aiming") end
+                while elapsed < throwDelay do
+                    local dt = RunService.Heartbeat:Wait()
+                    elapsed = elapsed + dt
 
-            local accumulator = 0
-            local BASE_RATE = 0.05 -- 20hz
-
-            RunService.Heartbeat:Connect(function(dt)
-                dt = math.clamp(dt,0.001,0.033)
-                accumulator += dt
-
-                while accumulator >= BASE_RATE do
-                    accumulator -= BASE_RATE
-                    if not duoHitbox2Active then return end
-                    if not lp.Character or not lp.Character:FindFirstChild("Humanoid") then return end
-                    if lp.Character.Humanoid.Health <= 0 then return end
-                    if not hasToolEquipped() then return end
-
-                    bind = lp.PlayerScripts:FindFirstChild("Event") or bind
-                    if not bind then return end
-
-                    local camera = Workspace.CurrentCamera
-                    local bestTarget,bestDist = nil, math.huge
-                    local localTeamColor = lp.TeamColor
-
+                    local currentBest, currentDist = nil, math.huge
                     for _, plr in ipairs(Players:GetPlayers()) do
                         if plr ~= lp and plr.TeamColor ~= localTeamColor and plr.Character then
                             local hum = plr.Character:FindFirstChild("Humanoid")
@@ -2440,47 +2471,23 @@ end
                             local backpack = plr:FindFirstChildOfClass("Backpack")
                             local hasBlade = plr.Character:FindFirstChild("Blade") or (backpack and backpack:FindFirstChild("Blade"))
 
-                            if hum and hum.Health>0 and head and hasBlade then
-                                local dist=(head.Position-camera.CFrame.Position).Magnitude
-                                if dist<bestDist then bestTarget,bestDist=head,dist end
+                            if hum and hum.Health > 0 and head and hasBlade then
+                                local dist = (head.Position - camera.CFrame.Position).Magnitude
+                                if dist < currentDist then
+                                    currentBest, currentDist = head, dist
+                                end
                             end
                         end
                     end
-
-                    if bestTarget and tick()-lastThrowTime>=1 and not equipCooldown then
-                        lastThrowTime = tick()
-                        bestTargetForAimlock = bestTarget
-
-                        task.spawn(function()
-                            playThrowAnimation()
-                            local throwDelay=0.2
-                            local elapsed=0
-                            while elapsed<throwDelay do
-                                local dt=RunService.Heartbeat:Wait()
-                                elapsed += dt
-                                -- dynamic mid-delay target switch
-                                local currentBest,currentDist=nil,math.huge
-                                for _, plr in ipairs(Players:GetPlayers()) do
-                                    if plr~=lp and plr.TeamColor~=localTeamColor and plr.Character then
-                                        local hum=plr.Character:FindFirstChild("Humanoid")
-                                        local head=plr.Character:FindFirstChild("Head")
-                                        local backpack=plr:FindFirstChildOfClass("Backpack")
-                                        local hasBlade=plr.Character:FindFirstChild("Blade") or (backpack and backpack:FindFirstChild("Blade"))
-                                        if hum and hum.Health>0 and head and hasBlade then
-                                            local dist=(head.Position-camera.CFrame.Position).Magnitude
-                                            if dist<currentDist then currentBest,currentDist=head,dist end
-                                        end
-                                    end
-                                end
-                                bestTargetForAimlock=currentBest
-                            end
-                            fireKnife(bind)
-                        end)
-                    end
+                    bestTargetForAimlock = currentBest
                 end
+
+                fireKnife(bind)
             end)
-        end)
-    end
+        end
+    end)
+end)
+end
 },
 
 ["Legit Auto Throw Duos V2"] = {
@@ -2597,6 +2604,8 @@ end
         ----------------------------------------------------
         -- CROSSHAIR AND AIMLOCK LOGIC
         ----------------------------------------------------
+        local backOffsetDist = 7  -- distance behind the crosshair part
+
         local function ensureCrosshairVisual()
             if crosshairPart and crosshairPart.Parent then return end
             local p = Instance.new("Part")
@@ -2665,20 +2674,22 @@ end
 
                 if crosshairPart then
                     crosshairPart.Transparency = 0
-                    crosshairPart.Position = crosshairPos
+                    local camDir = (Workspace.CurrentCamera.CFrame.Position - crosshairPos).Unit
+                    crosshairPart.Position = crosshairPos - camDir * backOffsetDist
                 end
             end)
         end
 
         local function fireKnife(bind)
             if not bind or not crosshairPart then return end
-            local aimPos = crosshairPos
-            if aimPos then
+            if not crosshairPos then return end
+
+            local camDir = (Workspace.CurrentCamera.CFrame.Position - crosshairPos).Unit
+            local aimPos = crosshairPos - camDir * backOffsetDist  -- <-- important change
                 pcall(function()
                     bind:Fire("t", CFrame.new(aimPos)) -- ORIGINAL THROW
                 end)
             end
-        end
 
         ----------------------------------------------------
         -- ULTRA-STABLE KILLFUNC SYSTEM
@@ -3010,6 +3021,8 @@ end
         ----------------------------------------------------
         -- CROSSHAIR AND AIMLOCK LOGIC
         ----------------------------------------------------
+        local backOffSetDist = 7
+
         local function ensureCrosshairVisual()
             if crosshairPart and crosshairPart.Parent then return end
             local p = Instance.new("Part")
@@ -3078,20 +3091,22 @@ end
 
                 if crosshairPart then
                     crosshairPart.Transparency = 0
-                    crosshairPart.Position = crosshairPos
+                    local camDir = (Workspace.CurrentCamera.CFrame.Position - crosshairPos).Unit
+                    crosshairPart.Position = crosshairPos - camDir * backOffsetDist
                 end
             end)
         end
 
         local function fireKnife(bind)
             if not bind or not crosshairPart then return end
-            local aimPos = crosshairPos
-            if aimPos then
+            if not crosshairPos then return end
+
+            local camDir = (Workspace.CurrentCamera.CFrame.Position - crosshairPos).Unit
+            local aimPos = crosshairPos - camDir * backOffsetDist  -- <-- important change
                 pcall(function()
                     bind:Fire("t", CFrame.new(aimPos)) -- ORIGINAL THROW
                 end)
             end
-        end
 
         ----------------------------------------------------
         -- ULTRA-STABLE KILLFUNC SYSTEM
@@ -3423,6 +3438,8 @@ end
         ----------------------------------------------------
         -- CROSSHAIR AND AIMLOCK LOGIC
         ----------------------------------------------------
+        local backOffSetDist = 7
+
         local function ensureCrosshairVisual()
             if crosshairPart and crosshairPart.Parent then return end
             local p = Instance.new("Part")
@@ -3491,20 +3508,22 @@ end
 
                 if crosshairPart then
                     crosshairPart.Transparency = 0
-                    crosshairPart.Position = crosshairPos
+                    local camDir = (Workspace.CurrentCamera.CFrame.Position - crosshairPos).Unit
+                    crosshairPart.Position = crosshairPos - camDir * backOffsetDist
                 end
             end)
         end
 
         local function fireKnife(bind)
             if not bind or not crosshairPart then return end
-            local aimPos = crosshairPos
-            if aimPos then
+            if not crosshairPos then return end
+
+            local camDir = (Workspace.CurrentCamera.CFrame.Position - crosshairPos).Unit
+            local aimPos = crosshairPos - camDir * backOffsetDist  -- <-- important change
                 pcall(function()
                     bind:Fire("t", CFrame.new(aimPos)) -- ORIGINAL THROW
                 end)
             end
-        end
 
         ----------------------------------------------------
         -- ULTRA-STABLE KILLFUNC SYSTEM
@@ -3831,6 +3850,8 @@ end
         ----------------------------------------------------
         -- CROSSHAIR AND AIMLOCK LOGIC
         ----------------------------------------------------
+        local backOffSetDist = 7
+
         local function ensureCrosshairVisual()
             if crosshairPart and crosshairPart.Parent then return end
             local p = Instance.new("Part")
@@ -3899,20 +3920,22 @@ end
 
                 if crosshairPart then
                     crosshairPart.Transparency = 0
-                    crosshairPart.Position = crosshairPos
+                    local camDir = (Workspace.CurrentCamera.CFrame.Position - crosshairPos).Unit
+                    crosshairPart.Position = crosshairPos - camDir * backOffsetDist
                 end
             end)
         end
 
         local function fireKnife(bind)
             if not bind or not crosshairPart then return end
-            local aimPos = crosshairPos
-            if aimPos then
+            if not crosshairPos then return end
+
+            local camDir = (Workspace.CurrentCamera.CFrame.Position - crosshairPos).Unit
+            local aimPos = crosshairPos - camDir * backOffsetDist  -- <-- important change
                 pcall(function()
                     bind:Fire("t", CFrame.new(aimPos)) -- ORIGINAL THROW
                 end)
             end
-        end
 
         ----------------------------------------------------
         -- ULTRA-STABLE KILLFUNC SYSTEM
